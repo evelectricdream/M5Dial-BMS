@@ -115,6 +115,7 @@ enum CmuType : uint8_t {
     CMU_BMW_I3_BUS   = 2,   // BMW i3 bus-pack variant (0x080 TX keepalive, 0x100-0x17F RX)
     CMU_BMW_MINIE    = 3,   // BMW Mini-E CSC (0x080 TX, 0x0A0-0x17F RX)
     CMU_BMW_PHEV     = 4,   // BMW PHEV SP06/SP41/SP44 — polled 50ms, 16 cells, 4 temps
+    CMU_VW_BMS       = 5,   // VW type 5 BMS modules — polled via 0x0BA, responds on 0x1CC+
 };
 
 // ---------------------------------------------------------------------------
@@ -211,7 +212,7 @@ enum CmuType : uint8_t {
 #define BMW_PHEV_CELLS_PER_MOD  16      // up to 16 cells per CSC module (SP44 uses 8 of 16)
 #define BMW_PHEV_TEMPS_PER_MOD  4       // 4 temperature sensors per module
 #define BMW_PHEV_MAX_MODS       12      // hardware max: 12 CSC modules per bus (SP44)
-                                        // SP06/SP41 packs use 6; extra polls are harmless
+                                         // SP06/SP41 packs use 6; extra polls are harmless
 #define BMW_PHEV_CMD_RATE_MS    50      // PHEV: command period (ms) — one module per call
 #define BMW_PHEV_TIMEOUT_MS     3000    // module considered offline after this many ms
 #define PHEV_MAX_MODS           BMW_PHEV_MAX_MODS   // alias used by CANManager arrays
@@ -233,10 +234,26 @@ extern const uint8_t BMW_PHEV_FINAL_XOR[12];
 #define BMW_CSC_CMD_INTERVAL_MS  24    // keepalive/command burst period (ms)
 
 // ---------------------------------------------------------------------------
+// VW BMS Type 5 CAN IDs
+// Polled master/slave: BMS sends 0x0BA command poll
+// Modules respond on 0x1CC + module_index (module 0 = 0x1CC, module 1 = 0x1CD, etc.)
+// Each module sends 3 frames with 4 cells each = 12 cells total per module
+//   Frame format: 8 bytes with 4 cell voltages packed as nibbles + bytes
+//   Voltage encoding: nibble/byte extraction with 1000mV offset, ~4mV resolution
+// Modules are polled sequentially; typical response timeout ~100ms per module
+// ---------------------------------------------------------------------------
+#define VW_CONTROL_ID           0x0BA   // TX: Master poll command ID
+#define VW_MODULE_ID_START      0x1CC   // RX: First module response ID (0x1CC=module 0)
+#define VW_MAX_MODULES          30      // Hardware max: 30 modules theoretically
+#define VW_CELLS_PER_MODULE     12      // 12 cells per VW module
+#define VW_CMD_INTERVAL_MS      100     // Poll interval per module (100ms allows ~8s for 30 mods)
+#define VW_TIMEOUT_MS           3000    // Module offline if not seen within 3 seconds
+
+// ---------------------------------------------------------------------------
 // EEPROM / NVS settings
 // Bump EEPROM_VERSION whenever EEPROMSettings layout changes
 // ---------------------------------------------------------------------------
-#define EEPROM_VERSION      0x19    // v7: 5-way cmuType (Tesla/i3/i3bus/MiniE/PHEV)
+#define EEPROM_VERSION      0x1A    // v8: 6-way cmuType (Tesla/i3/i3bus/MiniE/PHEV/VW)
 #define EEPROM_PAGE         0
 
 #define DEFAULT_OVER_V          4.20f
@@ -284,7 +301,7 @@ typedef struct {
     // Index 1..MAX_MODULE_ADDR maps directly to module address.
     uint8_t  moduleCells[MAX_MODULE_ADDR + 1];
     // v6: CMU type and CAN-based inhibit
-    uint8_t  cmuType;              // CmuType enum: 0=Tesla UART, 1=BMW i3 CAN
+    uint8_t  cmuType;              // CmuType enum: 0=Tesla UART, 1=BMW i3 CAN, 5=VW BMS
     uint8_t  canInhibitEnabled;    // 1 = pause balancing when charger silent on CAN
     uint32_t chargerHeartbeatID;   // CAN ID to watch for charger/inverter presence
 } EEPROMSettings;
