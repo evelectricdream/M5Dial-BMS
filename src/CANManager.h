@@ -4,7 +4,7 @@
 //
 // TX: SimpBMS frames 0x351/355/356/35A/35E/35F/35E/35F + extended 0x373
 //     gated on externalDeviceSeen (any non-CSC frame received)
-// RX: FreeRTOS task on core 0 decodes BMW i3/PHEV frames, charger heartbeat
+// RX: FreeRTOS task on core 0 decodes BMW i3/PHEV/VW frames, charger heartbeat
 //
 // PHEV TX: second FreeRTOS task (PHEV mode only) sends 0x080|slot every 50ms.
 //   Without these poll commands the PHEV CSC modules transmit nothing.
@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "bms_config.h"   // for PHEV_MAX_MODS, BMW_PHEV_MAX_MODS
 #include "CRC8.h"         // for PHEV poll command CRC
+#include "VWProtocol.h"   // for VW BMS protocol
 
 // ---------------------------------------------------------------------------
 // BMW i3 / Mini-E / Bus Pack staging data
@@ -71,6 +72,10 @@ public:
     // BMW PHEV slave data
     bool getPhevSlaveData(int slot, PhevSlaveData &out);
 
+    // VW BMS slave data accessor
+    bool getVWSlaveData(int addr, VWSlaveData &out);
+    uint32_t getVWLastSeen(int addr) const;
+
 private:
     bool         running;
     TaskHandle_t rxTaskHandle;
@@ -101,6 +106,14 @@ private:
     uint8_t  phevMesCycle;   // 0x0..0xF rolling counter (upper nibble of buf[6])
     uint8_t  phevTestCycle;  // 0..4, ramps up to enable voltage+temp measurement
     bool     phevBalCells;   // true = include balance target voltage in command
+
+    // VW BMS staging + accumulator (0-based indexing)
+    // Module addresses: 0..VW_MAX_MODULES-1 correspond to CAN IDs 0x1CC..0x1CC+N
+    VWSlaveData vwdata[VW_MAX_MODULES];
+    struct VWCellAcc {
+        float   cells[VW_CELLS_PER_MODULE];
+        uint8_t framesRx;   // bits 0/1/2 = sub-frames 0/1/2; complete = 0x07
+    } vwacc[VW_MAX_MODULES];
 
     // PHEV CRC helper (also reused for BMWI3BUS command checksum - same
     // BMW_PHEV_FINAL_XOR table, confirmed identical to T-CAN485's miniE_finalxor)
