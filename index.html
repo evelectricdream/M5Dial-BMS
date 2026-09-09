@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M5DialBMS — Web Installer</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg:      #0a0f0d;
+    --card:    #111a15;
+    --border:  #1e3028;
+    --ok:      #22c55e;
+    --ok-dim:  #166534;
+    --warn:    #f59e0b;
+    --text:    #e2f0e8;
+    --sub:     #6b8f76;
+    --mono:    'JetBrains Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 680px;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  /* ---- Header ---- */
+  header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+  }
+
+  .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .7rem;
+    color: var(--ok);
+    border: 1px solid var(--ok-dim);
+    border-radius: 2rem;
+    padding: .25rem .9rem;
+    letter-spacing: .08em;
+    margin-bottom: 1.2rem;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 6vw, 3rem);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -.02em;
+    color: var(--text);
+  }
+
+  h1 span { color: var(--ok); }
+
+  .subtitle {
+    margin-top: .7rem;
+    font-size: .95rem;
+    color: var(--sub);
+    font-weight: 400;
+  }
+
+  /* ---- Cards ---- */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: .75rem;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .card-num {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .num {
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: var(--ok-dim);
+    color: var(--ok);
+    font-family: var(--mono);
+    font-size: .8rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: .1rem;
+  }
+
+  .card-body h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: .5rem;
+    color: var(--text);
+  }
+
+  .card-body p, .card-body li {
+    font-size: .88rem;
+    color: var(--sub);
+    line-height: 1.6;
+  }
+
+  .card-body ul {
+    padding-left: 1.2rem;
+    margin-top: .4rem;
+  }
+
+  .card-body li { margin-bottom: .2rem; }
+
+  code {
+    font-family: var(--mono);
+    font-size: .82em;
+    color: var(--ok);
+    background: #0f1f16;
+    padding: .1em .4em;
+    border-radius: .25rem;
+  }
+
+  /* ---- Install card ---- */
+  .install-card {
+    background: var(--card);
+    border: 1px solid var(--ok-dim);
+    border-radius: .75rem;
+    padding: 2rem 1.5rem;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+
+  .install-card h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: .4rem;
+  }
+
+  .install-card p {
+    font-size: .85rem;
+    color: var(--sub);
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+  }
+
+  esp-web-install-button {
+    --esp-tools-button-color: var(--ok);
+    --esp-tools-button-text-color: #000;
+  }
+
+  /* ESP Web Tools renders a <button> — style it */
+  esp-web-install-button::part(button) {
+    background: var(--ok);
+    color: #000;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: .95rem;
+    padding: .75rem 2.5rem;
+    border: none;
+    border-radius: .4rem;
+    cursor: pointer;
+    letter-spacing: .02em;
+    transition: opacity .15s;
+  }
+
+  esp-web-install-button::part(button):hover { opacity: .85; }
+
+  .no-serial {
+    display: none;
+    background: #1c1200;
+    border: 1px solid #78350f;
+    border-radius: .5rem;
+    padding: .8rem 1rem;
+    font-size: .83rem;
+    color: var(--warn);
+    margin-top: 1rem;
+    text-align: left;
+  }
+
+  .no-serial a { color: var(--warn); }
+
+  /* Show warning if browser lacks Web Serial */
+  @supports not (display: revert) {
+    .no-serial { display: block; }
+  }
+
+  .warn-box {
+    background: #1c1200;
+    border: 1px solid #78350f;
+    border-radius: .5rem;
+    padding: .75rem 1rem;
+    font-size: .82rem;
+    color: var(--warn);
+    margin-top: .75rem;
+    line-height: 1.5;
+  }
+
+  /* ---- After flash steps ---- */
+  .steps {
+    counter-reset: step;
+    list-style: none;
+    padding: 0;
+    margin-top: .5rem;
+  }
+
+  .steps li {
+    counter-increment: step;
+    display: flex;
+    gap: .75rem;
+    align-items: flex-start;
+    font-size: .88rem;
+    color: var(--sub);
+    line-height: 1.6;
+    margin-bottom: .6rem;
+  }
+
+  .steps li::before {
+    content: counter(step);
+    flex-shrink: 0;
+    width: 1.4rem;
+    height: 1.4rem;
+    background: var(--border);
+    color: var(--ok);
+    font-family: var(--mono);
+    font-size: .72rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: .15rem;
+  }
+
+  /* ---- Footer ---- */
+  footer {
+    margin-top: 2rem;
+    text-align: center;
+    font-size: .78rem;
+    color: var(--sub);
+    font-family: var(--mono);
+  }
+
+  footer a { color: var(--ok); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1rem 0;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="badge">ESP32-S3 · M5Stack Dial · v7</div>
+    <h1>M5Dial<span>BMS</span></h1>
+    <p class="subtitle">Battery Management Monitor · Tesla &amp; BMW Module Support</p>
+  </header>
+
+  <!-- Step 1: Requirements -->
+  <div class="card card-num">
+    <div class="num">1</div>
+    <div class="card-body">
+      <h2>What you need</h2>
+      <ul>
+        <li><strong>M5Stack Dial</strong> with a USB-C cable that supports <strong>data transfer</strong><br>
+          <span style="font-size:.82rem">(many cheap cables are charge-only — if it doesn't connect, try a different cable)</span></li>
+        <li>Google <strong>Chrome</strong> or Microsoft <strong>Edge</strong> browser<br>
+          <span style="font-size:.82rem">(Firefox and Safari are not supported by the Web Serial API)</span></li>
+        <li>A CAN transceiver connected to Grove B (SN65HVD230 recommended)</li>
+      </ul>
+      <p style="margin-top:.6rem">✓ The M5Stack Dial does <strong>not</strong> require holding any buttons to enter flash mode — it connects automatically when you click Install.</p>
+    </div>
+  </div>
+
+  <!-- Step 2: Install -->
+  <div class="install-card">
+    <h2>Install Firmware</h2>
+    <p>This will erase the device and install the latest M5DialBMS firmware.<br>The process takes about 30–60 seconds.</p>
+    <esp-web-install-button manifest="manifest.json">
+      <span slot="activate">Click to Install M5DialBMS</span>
+      <span slot="unsupported">
+        <div class="no-serial" style="display:block">
+          ⚠️ Your browser doesn't support Web Serial.<br>
+          Please use <strong>Chrome</strong> or <strong>Edge</strong>.<br>
+          Alternatively, flash manually using <a href="https://espressif.github.io/esptool-js/" target="_blank">esptool-js</a> at address <code>0x0</code>.
+        </div>
+      </span>
+    </esp-web-install-button>
+    <div class="warn-box">
+      ⚠️ <strong>This will erase all existing data on the device.</strong> If you have custom settings saved, note them down first.
+    </div>
+  </div>
+
+  <!-- Step 3: After flashing -->
+  <div class="card card-num">
+    <div class="num">3</div>
+    <div class="card-body">
+      <h2>After flashing</h2>
+      <ol class="steps">
+        <li>The M5Dial reboots and shows the BMS startup screen</li>
+        <li>Connect to WiFi network <code>M5DialBMS</code> — password <code>M5DialBMS</code></li>
+        <li>Open <code>http://192.168.4.1</code> in your browser</li>
+        <li>Go to the <strong>Settings</strong> tab and configure your pack:
+          select CMU type, set number of series modules, cells per module, and voltage thresholds</li>
+        <li>Connect your CMU modules — cell data will appear on the display and dashboard within a few seconds</li>
+      </ol>
+      <div class="warn-box" style="margin-top:.8rem">
+        💡 WiFi is <strong>off by default</strong> at boot. Enable it via the Settings tab (<code>WIFI=1</code>) or with a <strong>long press</strong> of the encoder button at any time.
+      </div>
+    </div>
+  </div>
+
+  <!-- Supported hardware -->
+  <div class="card">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem 1.5rem">
+      <div>
+        <p style="font-size:.72rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem">CMU Types Supported</p>
+        <ul style="list-style:none;padding:0">
+          <li style="font-size:.83rem;color:var(--text);margin-bottom:.3rem">✓ Tesla BQ76PL536A UART</li>
+          <li style="font-size:.83rem;color:var(--text);margin-bottom:.3rem">✓ BMW i3 CSC Standard</li>
+          <li style="font-size:.83rem;color:var(--text);margin-bottom:.3rem">✓ BMW i3 Bus Pack (Vicinity)</li>
+          <li style="font-size:.83rem;color:var(--text);margin-bottom:.3rem">✓ BMW Mini-E CSC</li>
+          <li style="font-size:.83rem;color:var(--text)">✓ BMW PHEV SP06/SP41</li>
+        </ul>
+      </div>
+      <div>
+        <p style="font-size:.72rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem">Features</p>
+        <ul style="list-style:none;padding:0">
+          <li style="font-size:.83rem;color:var(--text);margin-bottom:.3rem">✓ SimpBMS CAN TX (zombieverter)</li>
+          <li style="font-size:.83rem;color:var(--text);margin-bottom:.3rem">✓ Web dashboard at 192.168.4.1</li>
+          <li style="font-size:.83rem;color:var(--text);margin-bottom:.3rem">✓ SavvyCAN / GVRET on port 23</li>
+          <li style="font-size:.83rem;color:var(--text);margin-bottom:.3rem">✓ Active cell balancing (Tesla)</li>
+          <li style="font-size:.83rem;color:var(--text)">✓ 240×240 round LVGL display</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <footer>
+    <a href="https://github.com/robertwa1974/M5Dial-BMS" target="_blank">GitHub</a>
+    &nbsp;·&nbsp;
+    M5DialBMS v7 · EEPROM 0x19
+    &nbsp;·&nbsp;
+    Based on <a href="https://github.com/collin80/TeslaBMS" target="_blank">collin80/TeslaBMS</a>
+  </footer>
+
+</div>
+</body>
+</html>
