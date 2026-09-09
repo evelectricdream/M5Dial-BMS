@@ -21,9 +21,10 @@ const uint8_t BMW_PHEV_FINAL_XOR[12] = {
 
 CANManager::CANManager()
     : running(false), rxTaskHandle(nullptr), phevCmdTaskHandle(nullptr),
-      i3BusCmdTaskHandle(nullptr),
+      i3BusCmdTaskHandle(nullptr), vwCmdTaskHandle(nullptr),
       lastChargerSeen(0), canCurrentA(0.0f), externalDeviceSeen(false),
       phevNextMod(0), phevMesCycle(0), phevTestCycle(0), phevBalCells(false),
+      vwNextMod(0),
       bmwI3Bus_counter(0), i3BusLastReplySeenMs(0), i3BusTxStartMs(0)
 {
     memset(i3data,   0, sizeof(i3data));
@@ -96,6 +97,15 @@ bool CANManager::begin()
                      BMW_PHEV_CMD_RATE_MS);
     }
 
+    // VW BMS: start poll task
+    if (settings.cmuType == CMU_VW_BMS) {
+        vwNextMod = 0;
+        xTaskCreatePinnedToCore(
+            vwCmdTaskFn, "VW_CMD", 3072, this, 4, &vwCmdTaskHandle, 0);
+        Logger::info("CAN: VW mode — poll task running (ID 0x%03X, %dms interval)",
+                     VW_CONTROL_ID, VW_CMD_INTERVAL_MS);
+    }
+
     return true;
 }
 
@@ -108,6 +118,7 @@ void CANManager::end()
     running = false;
     if (phevCmdTaskHandle) { vTaskDelete(phevCmdTaskHandle); phevCmdTaskHandle = nullptr; }
     if (i3BusCmdTaskHandle) { vTaskDelete(i3BusCmdTaskHandle); i3BusCmdTaskHandle = nullptr; }
+    if (vwCmdTaskHandle) { vTaskDelete(vwCmdTaskHandle); vwCmdTaskHandle = nullptr; }
     if (rxTaskHandle)      { vTaskDelete(rxTaskHandle);      rxTaskHandle      = nullptr; }
     twai_stop();
     twai_driver_uninstall();
@@ -178,6 +189,19 @@ void CANManager::i3BusCmdTaskFn(void *param)
     while (self->running) {
         self->sendBMWI3BUSCommand();
         vTaskDelay(pdMS_TO_TICKS(BMW_CSC_CMD_INTERVAL_MS));
+    }
+    vTaskDelete(nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// vwCmdTaskFn - FreeRTOS task: send VW poll commands every 100ms
+// ---------------------------------------------------------------------------
+void CANManager::vwCmdTaskFn(void *param)
+{
+    CANManager *self = (CANManager *)param;
+    while (self->running) {
+        self->sendVWPollCommand();
+        vTaskDelay(pdMS_TO_TICKS(VW_CMD_INTERVAL_MS));
     }
     vTaskDelete(nullptr);
 }
@@ -398,39 +422,32 @@ void CANManager::processRxFrame(const twai_message_t &msg)
     if (settings.cmuType == CMU_VW_BMS &&
         id >= VW_MODULE_ID_START && id < (VW_MODULE_ID_START + VW_MAX_MODULES))
     {
-        int mod_idx = (int)(id - VW_MODULE_ID_START);  // 0-based module index
+        int mod_idx = (int)(id - VW_MODULE_ID_START);
         if (mod_idx < 0 || mod_idx >= VW_MAX_MODULES || dlc < 8) {
             wifiLogCAN(id, (uint8_t *)msg.data, dlc);
             return;
         }
 
-        // Frame numbering: assume lower byte encoding or position in sequence
-        // VW sends 3 frames per module with 4 cell voltages each (LE format, 1mV/bit)
-        // Accumulate all 3 frames, then commit when all received (framesRx == 0x07)
-        
-        // Decode 4 cells from this frame: bytes 0-1, 2-3, 4-5, 6-7 (little-endian)
-        // Frame sequence tracked via framesRx bits [0:2]
-        // Note: protocol needs refinement based on actual VW frame structure
-        
-        // For now, assume frame contains 4 cells in little-endian 16-bit format
-        uint8_t frame_idx = 0;  // simplified: track based on receive order
-        
+        uint8_t frame_idx = 0;
+        if ((vwacc[mod_idx].framesRx & 0x01) == 0) frame_idx = 0;
+        else if ((vwacc[mod_idx].framesRx & 0x02) == 0) frame_idx = 1;
+        else if ((vwacc[mod_idx].framesRx & 0x04) == 0) frame_idx = 2;
+        else {
+            vwacc[mod_idx].framesRx = 0;
+            frame_idx = 0;
+        }
+
         for (int c = 0; c < 4; c++) {
             uint16_t raw = (uint16_t)msg.data[c * 2] |
                           ((uint16_t)msg.data[c * 2 + 1] << 8);
-            if (raw > 0 && raw < 5000) {  // sanity check: 0-5V range
-                vwacc[mod_idx].cells[frame_idx * 4 + c] = (raw + 1000) * 0.001f;  // 1V offset
-            }
+            vwacc[mod_idx].cells[frame_idx * 4 + c] = (raw + 1000) * 0.001f;
         }
-        
-        // Track which of the 3 sub-frames we've received
+
         vwacc[mod_idx].framesRx |= (1 << frame_idx);
-        
-        // When all 3 frames received (0x07), commit to staging buffer
+        vwdata[mod_idx].lastSeenMs = millis();
+
         if (vwacc[mod_idx].framesRx == 0x07) {
             memcpy(vwdata[mod_idx].cellV, vwacc[mod_idx].cells, sizeof(vwacc[mod_idx].cells));
-            
-            // Calculate min/max for this module
             vwdata[mod_idx].minCellV = vwdata[mod_idx].cellV[0];
             vwdata[mod_idx].maxCellV = vwdata[mod_idx].cellV[0];
             for (int i = 1; i < VW_CELLS_PER_MODULE; i++) {
@@ -439,9 +456,7 @@ void CANManager::processRxFrame(const twai_message_t &msg)
                 if (vwdata[mod_idx].cellV[i] > vwdata[mod_idx].maxCellV)
                     vwdata[mod_idx].maxCellV = vwdata[mod_idx].cellV[i];
             }
-            
-            vwdata[mod_idx].fresh      = true;
-            vwdata[mod_idx].lastSeenMs = millis();
+            vwdata[mod_idx].fresh = true;
             vwacc[mod_idx].framesRx    = 0;
         }
         wifiLogCAN(id, (uint8_t *)msg.data, dlc);
@@ -590,6 +605,28 @@ void CANManager::sendPhevResetIDs()
     memset(buf + 1, 0xFF, 7);
     sendFrame(BMW_PHEV_MGMT_ID, buf, 8);
     Logger::info("CAN: PHEV ID reset sent, discovery broadcast done");
+}
+
+// ---------------------------------------------------------------------------
+// sendVWPollCommand
+// ---------------------------------------------------------------------------
+void CANManager::sendVWPollCommand()
+{
+    if (!running) return;
+
+    uint8_t mod = vwNextMod;
+    vwNextMod = (uint8_t)((vwNextMod + 1) % VW_MAX_MODULES);
+
+    uint32_t lastSeen = vwdata[mod].lastSeenMs;
+    if (lastSeen != 0 && (millis() - lastSeen) > VW_TIMEOUT_MS) {
+        vwdata[mod].lastSeenMs = 0;
+        vwdata[mod].fresh = false;
+        vwacc[mod].framesRx = 0;
+        return;
+    }
+
+    uint8_t buf[8] = {0xF1, 0x00, mod, 0x00, 0x00, 0x00, 0x00, 0x00};
+    sendFrame(VW_CONTROL_ID, buf, 8);
 }
 
 void CANManager::sendI3WakeFrame()

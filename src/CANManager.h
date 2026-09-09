@@ -81,6 +81,7 @@ private:
     TaskHandle_t rxTaskHandle;
     TaskHandle_t phevCmdTaskHandle;   // PHEV poll task (nullptr in non-PHEV modes)
     TaskHandle_t i3BusCmdTaskHandle;  // BMWI3BUS periodic command task (nullptr otherwise)
+    TaskHandle_t vwCmdTaskHandle;     // VW poll task (nullptr in non-VW modes)
 
     uint32_t     lastChargerSeen;
     float        canCurrentA;
@@ -106,6 +107,7 @@ private:
     uint8_t  phevMesCycle;   // 0x0..0xF rolling counter (upper nibble of buf[6])
     uint8_t  phevTestCycle;  // 0..4, ramps up to enable voltage+temp measurement
     bool     phevBalCells;   // true = include balance target voltage in command
+    uint8_t  vwNextMod;      // 0..VW_MAX_MODULES-1 module poll cursor
 
     // VW BMS staging + accumulator (0-based indexing)
     // Module addresses: 0..VW_MAX_MODULES-1 correspond to CAN IDs 0x1CC..0x1CC+N
@@ -129,9 +131,11 @@ private:
     // PHEV TX
     void sendPhevCommand();
     void sendPhevResetIDs();
+    void sendVWPollCommand();
 
     // FreeRTOS tasks
     static void rxTaskFn(void *param);
     static void phevCmdTaskFn(void *param);
     static void i3BusCmdTaskFn(void *param);
+    static void vwCmdTaskFn(void *param);
 };

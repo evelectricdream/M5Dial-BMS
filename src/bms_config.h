@@ -115,7 +115,7 @@ enum CmuType : uint8_t {
     CMU_BMW_I3_BUS   = 2,   // BMW i3 bus-pack variant (0x080 TX keepalive, 0x100-0x17F RX)
     CMU_BMW_MINIE    = 3,   // BMW Mini-E CSC (0x080 TX, 0x0A0-0x17F RX)
     CMU_BMW_PHEV     = 4,   // BMW PHEV SP06/SP41/SP44 — polled 50ms, 16 cells, 4 temps
-    // CMU_VW_BMS       = 5,   // VW type 5 BMS modules — DISABLED: handler not yet implemented
+    CMU_VW_BMS       = 5,   // VW type 5 BMS modules
 };
 
 // ---------------------------------------------------------------------------
@@ -234,35 +234,28 @@ extern const uint8_t BMW_PHEV_FINAL_XOR[12];
 #define BMW_CSC_CMD_INTERVAL_MS  24    // keepalive/command burst period (ms)
 
 // ---------------------------------------------------------------------------
-// VW BMS Type 5 CAN IDs - DISABLED
-// NOTE: VW support is stub code. Protocol definitions are here for reference,
-// but the handlers (getAllVoltTempFromVW, CANManager::processVWFrame) are not
-// yet implemented. To enable VW support, implement:
-//   1. BMSModuleManager::getAllVoltTempFromVW()
-//   2. CANManager VW RX frame decoder
-//   3. CANManager VW poll command TX task
-//   4. Add CMU_VW_BMS = 5 back to CmuType enum
+// VW BMS Type 5 CAN IDs (implemented in CANManager + BMSModuleManager)
 //
 // Reference protocol (from VW-BMS repo):
 // Polled master/slave: BMS sends 0x0BA command poll
 // Modules respond on 0x1CC + module_index (module 0 = 0x1CC, module 1 = 0x1CD, etc.)
 // Each module sends 3 frames with 4 cells each = 12 cells total per module
-//   Frame format: 8 bytes with 4 cell voltages packed as nibbles + bytes
-//   Voltage encoding: nibble/byte extraction with 1000mV offset, ~4mV resolution
+//   Frame format: 8 bytes with 4 little-endian uint16 cell voltages
+//   Voltage encoding: millivolts = raw + 1000
 // Modules are polled sequentially; typical response timeout ~100ms per module
 // ---------------------------------------------------------------------------
 // #define VW_CONTROL_ID           0x0BA   // TX: Master poll command ID
 // #define VW_MODULE_ID_START      0x1CC   // RX: First module response ID (0x1CC=module 0)
 // #define VW_MAX_MODULES          30      // Hardware max: 30 modules theoretically
 // #define VW_CELLS_PER_MODULE     12      // 12 cells per VW module
-// #define VW_CMD_INTERVAL_MS      100     // Poll interval per module (100ms allows ~8s for 30 mods)
+// #define VW_CMD_INTERVAL_MS      100     // Poll interval per module (~3s for 30 modules)
 // #define VW_TIMEOUT_MS           3000    // Module offline if not seen within 3 seconds
 
 // ---------------------------------------------------------------------------
 // EEPROM / NVS settings
 // Bump EEPROM_VERSION whenever EEPROMSettings layout changes
 // ---------------------------------------------------------------------------
-#define EEPROM_VERSION      0x19    // v7: 5-way cmuType (Tesla/i3/i3bus/MiniE/PHEV)
+#define EEPROM_VERSION      0x1A    // v8: 6-way cmuType (adds VW BMS type 5)
 #define EEPROM_PAGE         0
 
 #define DEFAULT_OVER_V          4.20f
