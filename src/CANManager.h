@@ -50,7 +50,7 @@ public:
 
     // TX
     void sendBatterySummary();
-    void sendFrame(uint32_t id, uint8_t *data, uint8_t len);
+    void sendFrame(uint32_t id, uint8_t *data, uint8_t len, bool extd = false);
 
     // RX dispatch
     void processRxFrame(const twai_message_t &msg);
@@ -75,6 +75,7 @@ public:
     // VW BMS slave data accessor
     bool getVWSlaveData(int addr, VWSlaveData &out);
     uint32_t getVWLastSeen(int addr) const;
+    void sendVWBalanceCommand(uint8_t moduleAddr, uint16_t balanceMask);
 
 private:
     bool         running;

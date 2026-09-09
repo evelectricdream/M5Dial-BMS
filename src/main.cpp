@@ -287,7 +287,7 @@ void loop()
         switch (settings.cmuType) {
             case CMU_TESLA:
                 bms.getAllVoltTemp();
-                // Auto-balance: Tesla UART only — CAN modules handle balancing internally
+                // Auto-balance path for Tesla UART
                 if (bms.getAutoBalance() && !bms.getBalanceInhibit() && !bms.isFaultedState())
                     bms.balanceCells();
                 break;
@@ -296,6 +296,8 @@ void loop()
                 break;
             case CMU_VW_BMS:
                 bms.getAllVoltTempFromVW();
+                if (bms.getAutoBalance() && !bms.getBalanceInhibit() && !bms.isFaultedState())
+                    bms.balanceCells();
                 break;
             default:  // CMU_BMW_I3, CMU_BMW_I3_BUS, CMU_BMW_MINIE
                 bms.getAllVoltTempFromCAN();

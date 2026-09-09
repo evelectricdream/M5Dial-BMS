@@ -213,6 +213,7 @@ void CANManager::processRxFrame(const twai_message_t &msg)
 {
     uint32_t id  = msg.identifier;
     uint8_t  dlc = msg.data_length_code;
+    bool     ext = msg.extd != 0;
 
     // Raw frame dump — throttled per ID to avoid flooding serial at 115200 baud
     if (Logger::isDebug()) {
@@ -414,10 +415,74 @@ void CANManager::processRxFrame(const twai_message_t &msg)
     }
 
     // -----------------------------------------------------------------------
-    // VW BMS Type 5 Protocol
+    // VW BMS Type 5 Protocol (extended status/temperature + standard cells)
+    // -----------------------------------------------------------------------
+    if (settings.cmuType == CMU_VW_BMS && ext &&
+        id >= VW_BAL_STATUS_ID_MIN && id <= VW_BAL_STATUS_ID_MAX && dlc >= 4)
+    {
+        int mod = (int)(id & 0x0F);
+        if (mod >= 1 && mod <= VW_MAX_MODULES) {
+            int idx = mod - 1;
+            vwdata[idx].balStat = (uint32_t)((msg.data[1] >> 4)
+                           | ((uint32_t)msg.data[2] << 4)
+                           | ((uint32_t)msg.data[3] << 12));
+            vwdata[idx].lastSeenMs = millis();
+        }
+        wifiLogCAN(id, (uint8_t *)msg.data, dlc);
+        return;
+    }
+
+    if (settings.cmuType == CMU_VW_BMS && ext &&
+        id >= VW_TEMP_TYPE1_ID_MIN && id <= VW_TEMP_TYPE1_ID_MAX && dlc >= 6)
+    {
+        int low = (int)(id & 0xFF);
+        int mod = 0;
+        if (low > 0x0A && low < 0x40 && ((low & 0x01) == 0)) {
+            mod = ((low & 0x0F) / 2) + 1;
+        }
+        if (mod >= 1 && mod <= VW_MAX_MODULES) {
+            int idx = mod - 1;
+            float t0 = vwdata[idx].temp[0];
+            float t1 = vwdata[idx].temp[1];
+
+            if (dlc >= 8 && msg.data[7] == 0xFD) {
+                if (msg.data[2] != 0xFD) t0 = (msg.data[2] * 0.5f) - 40.0f;
+            } else {
+                if (msg.data[0] < 0xDF) {
+                    t0 = (msg.data[0] * 0.5f) - 43.0f;
+                    vwdata[idx].balStat = (uint32_t)(msg.data[2] | ((uint32_t)msg.data[3] << 8));
+                } else {
+                    t0 = (msg.data[3] * 0.5f) - 43.0f;
+                }
+                if (msg.data[4] < 0xF0) t1 = (msg.data[4] * 0.5f) - 43.0f;
+            }
+
+            vwdata[idx].temp[0] = t0;
+            vwdata[idx].temp[1] = t1;
+            vwdata[idx].lastSeenMs = millis();
+        }
+        wifiLogCAN(id, (uint8_t *)msg.data, dlc);
+        return;
+    }
+
+    if (settings.cmuType == CMU_VW_BMS && ext &&
+        id >= VW_TEMP_TYPE2_ID_MIN && id <= VW_TEMP_TYPE2_ID_MAX && dlc >= 6)
+    {
+        int mod = (int)(id & 0x0F) + 1;
+        if (mod >= 1 && mod <= VW_MAX_MODULES && msg.data[5] != 0xDF) {
+            int idx = mod - 1;
+            uint16_t raw = (uint16_t)(((msg.data[5] & 0x0F) << 4) | ((msg.data[4] & 0xF0) >> 4));
+            vwdata[idx].temp[0] = (raw * 0.5f) - 40.0f;
+            vwdata[idx].lastSeenMs = millis();
+        }
+        wifiLogCAN(id, (uint8_t *)msg.data, dlc);
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // VW BMS Type 5 standard cell frames
     // Module ID range: 0x1CC..0x1CC+29 (module 0..29)
     // 3 frames per module, 4 cells per frame = 12 cells total
-    // Gated on CMU_VW_BMS to avoid cross-protocol conflicts
     // -----------------------------------------------------------------------
     if (settings.cmuType == CMU_VW_BMS &&
         id >= VW_MODULE_ID_START && id < (VW_MODULE_ID_START + VW_MAX_MODULES))
@@ -629,6 +694,40 @@ void CANManager::sendVWPollCommand()
     sendFrame(VW_CONTROL_ID, buf, 8);
 }
 
+void CANManager::sendVWBalanceCommand(uint8_t moduleAddr, uint16_t balanceMask)
+{
+    if (!running) return;
+    if (moduleAddr < 1 || moduleAddr > 12) return;
+
+    uint32_t idA, idB;
+    if (moduleAddr <= 9) {
+        idA = 0x1A555408UL + ((uint32_t)moduleAddr * 2UL);
+        idB = idA + 1UL;
+    } else {
+        static const uint32_t idsA[3] = {0x1A5554ABUL, 0x1A5554ADUL, 0x1A5554AFUL};
+        static const uint32_t idsB[3] = {0x1A5554ACUL, 0x1A5554AEUL, 0x1A5554B0UL};
+        int i = (int)moduleAddr - 10;
+        idA = idsA[i];
+        idB = idsB[i];
+    }
+
+    uint8_t first[8] = {0};
+    uint8_t second[8] = {0};
+
+    for (int i = 0; i < 8; i++) {
+        first[i] = (balanceMask & (1U << i)) ? 0x08 : 0x00;
+    }
+    for (int i = 8; i < 12; i++) {
+        second[i - 8] = (balanceMask & (1U << i)) ? 0x08 : 0x00;
+    }
+    second[5] = 0xFE;
+    second[6] = 0xFE;
+    second[7] = 0xFE;
+
+    sendFrame(idA, first, 8, true);
+    sendFrame(idB, second, 8, true);
+}
+
 void CANManager::sendI3WakeFrame()
 {
     uint8_t data[8] = {0};
@@ -687,7 +786,7 @@ void CANManager::sendBMWI3BUSCommand()
 // ---------------------------------------------------------------------------
 // sendFrame — state guard + non-blocking TX
 // ---------------------------------------------------------------------------
-void CANManager::sendFrame(uint32_t id, uint8_t *data, uint8_t len)
+void CANManager::sendFrame(uint32_t id, uint8_t *data, uint8_t len, bool extd)
 {
     if (!running) return;
 
@@ -702,7 +801,7 @@ void CANManager::sendFrame(uint32_t id, uint8_t *data, uint8_t len)
     twai_message_t msg;
     memset(&msg, 0, sizeof(msg));
     msg.identifier       = id;
-    msg.extd             = 0;
+    msg.extd             = extd ? 1 : 0;
     msg.data_length_code = (len <= 8) ? len : 8;
     memcpy(msg.data, data, msg.data_length_code);
 

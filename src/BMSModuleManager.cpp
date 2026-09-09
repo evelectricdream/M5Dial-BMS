@@ -77,6 +77,22 @@ void BMSModuleManager::balanceCells()
         return;
     }
 
+    if (settings.cmuType == CMU_VW_BMS) {
+        float packLow = getLowCellVolt();
+        for (int address = 1; address <= MAX_MODULE_ADDR && address <= 12; address++) {
+            if (!modules[address].isExisting()) continue;
+            uint16_t balanceMask = 0;
+            int modCells = getModuleCells(address);
+            for (int i = 0; i < modCells && i < VW_CELLS_PER_MODULE; i++) {
+                float cv = modules[address].getCellVoltage(i);
+                if (cv > settings.IgnoreVolt && cv > (packLow + settings.balanceHyst))
+                    balanceMask |= (uint16_t)(1U << i);
+            }
+            can.sendVWBalanceCommand((uint8_t)address, balanceMask);
+        }
+        return;
+    }
+
     uint8_t payload[4];
     uint8_t buff[30];
     uint8_t balance = 0;
@@ -758,8 +774,8 @@ void BMSModuleManager::getAllVoltTempFromVW()
                     modV += d.cellV[c];
             }
             modules[addr].setModuleVoltage(modV);
-            modules[addr].setTemperature(0, 0.0f);
-            modules[addr].setTemperature(1, 0.0f);
+            modules[addr].setTemperature(0, d.temp[0]);
+            modules[addr].setTemperature(1, d.temp[1]);
             modules[addr].setFaults(0);
             modules[addr].setAlerts(0);
         }
