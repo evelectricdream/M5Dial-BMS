@@ -120,6 +120,7 @@ static const char *cmuTypeName()
         case CMU_BMW_I3_BUS: return "BMW i3 Bus";
         case CMU_BMW_MINIE:  return "BMW Mini-E";
         case CMU_BMW_PHEV:   return "BMW PHEV";
+        case CMU_VW_BMS:     return "VW BMS";
         default:             return "Unknown";
     }
 }
@@ -224,6 +225,10 @@ void setup()
         Logger::console("BMW PHEV CAN mode: skipping UART enumeration");
         display.showStartup("PHEV CAN mode...");
         // Module discovery via 0x080 polls — starts automatically once CAN begins
+    } else if (settings.cmuType == CMU_VW_BMS) {
+        Logger::console("VW CAN mode: skipping UART enumeration");
+        display.showStartup("VW CAN mode...");
+        // Module discovery via 0x0BA polls — starts automatically once CAN begins
     } else {
         Logger::console("%s CAN mode: skipping UART enumeration", cmuTypeName());
         display.showStartup("BMW CAN mode...");
@@ -282,12 +287,17 @@ void loop()
         switch (settings.cmuType) {
             case CMU_TESLA:
                 bms.getAllVoltTemp();
-                // Auto-balance: Tesla UART only — CAN modules handle balancing internally
+                // Auto-balance path for Tesla UART
                 if (bms.getAutoBalance() && !bms.getBalanceInhibit() && !bms.isFaultedState())
                     bms.balanceCells();
                 break;
             case CMU_BMW_PHEV:
                 bms.getAllVoltTempFromPHEV();
+                break;
+            case CMU_VW_BMS:
+                bms.getAllVoltTempFromVW();
+                if (bms.getAutoBalance() && !bms.getBalanceInhibit() && !bms.isFaultedState())
+                    bms.balanceCells();
                 break;
             default:  // CMU_BMW_I3, CMU_BMW_I3_BUS, CMU_BMW_MINIE
                 bms.getAllVoltTempFromCAN();

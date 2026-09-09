@@ -56,6 +56,8 @@ public:
     void  getAllVoltTempFromCAN();
     // BMW PHEV CAN-sourced data path
     void  getAllVoltTempFromPHEV();
+    // VW CAN-sourced data path
+    void  getAllVoltTempFromVW();
 
     // Per-module accessor
     BMSModule& getModule(int addr);

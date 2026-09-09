@@ -654,7 +654,7 @@ void Display::updateSettingsPage()
 {
     char buf[320];
     static const char *cmuNames[] = {
-        "Tesla UART", "BMW i3 CAN", "BMW i3 Bus", "BMW Mini-E", "BMW PHEV"
+        "Tesla UART", "BMW i3 CAN", "BMW i3 Bus", "BMW Mini-E", "BMW PHEV", "VW BMS"
     };
     snprintf(buf, sizeof(buf),
         "M5DialBMS v7\n"
@@ -666,7 +666,7 @@ void Display::updateSettingsPage()
         "ChgHB: 0x%03X  %s\n"
         "AutoBal: %s\n"
         "Mods: %d / %d max",
-        cmuNames[settings.cmuType <= 4 ? settings.cmuType : 0],
+        cmuNames[settings.cmuType <= 5 ? settings.cmuType : 0],
         settings.numCells, settings.numSeries, settings.numParallel,
         settings.OverVSetpoint, settings.UnderVSetpoint,
         settings.balanceVoltage, settings.balanceHyst,

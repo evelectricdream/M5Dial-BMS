@@ -77,6 +77,22 @@ void BMSModuleManager::balanceCells()
         return;
     }
 
+    if (settings.cmuType == CMU_VW_BMS) {
+        float packLow = getLowCellVolt();
+        for (int address = 1; address <= MAX_MODULE_ADDR && address <= 12; address++) {
+            if (!modules[address].isExisting()) continue;
+            uint16_t balanceMask = 0;
+            int modCells = getModuleCells(address);
+            for (int i = 0; i < modCells && i < VW_CELLS_PER_MODULE; i++) {
+                float cv = modules[address].getCellVoltage(i);
+                if (cv > settings.IgnoreVolt && cv > (packLow + settings.balanceHyst))
+                    balanceMask |= (uint16_t)(1U << i);
+            }
+            can.sendVWBalanceCommand((uint8_t)address, balanceMask);
+        }
+        return;
+    }
+
     uint8_t payload[4];
     uint8_t buff[30];
     uint8_t balance = 0;
@@ -621,6 +637,11 @@ int BMSModuleManager::getModuleCells(int addr)
         modules[addr].setNumCells(BMW_PHEV_CELLS_PER_MOD);
         return BMW_PHEV_CELLS_PER_MOD;
     }
+    // VW Type 5: fixed 12 cells per module
+    if (settings.cmuType == CMU_VW_BMS) {
+        modules[addr].setNumCells(VW_CELLS_PER_MODULE);
+        return VW_CELLS_PER_MODULE;
+    }
     uint8_t ov = settings.moduleCells[addr];
     int n = (ov >= 1 && ov <= 6) ? (int)ov
           : ((settings.numCells >= 1 && settings.numCells <= 6) ? (int)settings.numCells : 6);
@@ -718,6 +739,49 @@ void BMSModuleManager::getAllVoltTempFromPHEV()
         modules[x].setAlerts(0);
 
         packVolt += modV;
+    }
+
+    int np = (settings.numParallel > 0) ? settings.numParallel : BMS_NUM_PARALLEL;
+    if (np > 1) packVolt /= np;
+}
+
+// ---------------------------------------------------------------------------
+// getAllVoltTempFromVW - populate BMSModule objects from VW Type 5 CAN data
+// ---------------------------------------------------------------------------
+void BMSModuleManager::getAllVoltTempFromVW()
+{
+    packVolt = 0.0f;
+    numFoundModules = 0;
+
+    const uint32_t now = millis();
+    const int maxMods = (VW_MAX_MODULES < MAX_MODULE_ADDR) ? VW_MAX_MODULES : MAX_MODULE_ADDR;
+
+    for (int i = 0; i < maxMods; i++) {
+        const int addr = i + 1;
+        VWSlaveData d;
+        bool hasData = can.getVWSlaveData(i, d);
+        uint32_t lastSeen = hasData ? d.lastSeenMs : can.getVWLastSeen(i);
+        bool alive = (lastSeen != 0) && ((now - lastSeen) < VW_TIMEOUT_MS);
+        modules[addr].setExists(alive);
+        if (!alive) continue;
+
+        modules[addr].setNumCells(VW_CELLS_PER_MODULE);
+        if (d.fresh) {
+            float modV = 0.0f;
+            for (int c = 0; c < VW_CELLS_PER_MODULE; c++) {
+                modules[addr].setCellVoltage(c, d.cellV[c]);
+                if (d.cellV[c] > settings.IgnoreVolt && d.cellV[c] < 5.0f)
+                    modV += d.cellV[c];
+            }
+            modules[addr].setModuleVoltage(modV);
+            modules[addr].setTemperature(0, d.temp[0]);
+            modules[addr].setTemperature(1, d.temp[1]);
+            modules[addr].setFaults(0);
+            modules[addr].setAlerts(0);
+        }
+
+        numFoundModules++;
+        packVolt += modules[addr].getModuleVoltage();
     }
 
     int np = (settings.numParallel > 0) ? settings.numParallel : BMS_NUM_PARALLEL;
